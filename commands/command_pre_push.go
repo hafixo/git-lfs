@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/git-lfs/git-lfs/git"
+	"github.com/git-lfs/git-lfs/v3/git"
 	"github.com/rubyist/tracerx"
 	"github.com/spf13/cobra"
 )
@@ -41,6 +41,10 @@ func prePushCommand(cmd *cobra.Command, args []string) {
 	if len(args) == 0 {
 		Print("This should be run through Git's pre-push hook.  Run `git lfs update` to install it.")
 		os.Exit(1)
+	}
+
+	if cfg.Os.Bool("GIT_LFS_SKIP_PUSH", false) {
+		return
 	}
 
 	requireGitVersion()

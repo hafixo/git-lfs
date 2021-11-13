@@ -3,8 +3,8 @@ package commands
 import (
 	"os"
 
-	"github.com/git-lfs/git-lfs/git"
-	"github.com/git-lfs/git-lfs/lfs"
+	"github.com/git-lfs/git-lfs/v3/git"
+	"github.com/git-lfs/git-lfs/v3/lfs"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +36,7 @@ func cmdInstallOptions() *lfs.FilterOptions {
 	requireGitVersion()
 
 	if localInstall || worktreeInstall {
-		requireInRepo()
+		setupRepository()
 	}
 
 	switch {

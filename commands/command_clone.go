@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/git-lfs/git-lfs/subprocess"
+	"github.com/git-lfs/git-lfs/v3/subprocess"
 
-	"github.com/git-lfs/git-lfs/git"
-	"github.com/git-lfs/git-lfs/tools"
+	"github.com/git-lfs/git-lfs/v3/git"
+	"github.com/git-lfs/git-lfs/v3/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -70,7 +70,7 @@ func cloneCommand(cmd *cobra.Command, args []string) {
 	// Make sure we pop back to dir we started in at the end
 	defer os.Chdir(cwd)
 
-	requireInRepo()
+	setupRepository()
 
 	// Support --origin option to clone
 	if len(cloneFlags.Origin) > 0 {

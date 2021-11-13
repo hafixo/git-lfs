@@ -13,9 +13,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/git-lfs/git-lfs/fs"
-	"github.com/git-lfs/git-lfs/git"
-	"github.com/git-lfs/git-lfs/tools"
+	"github.com/git-lfs/git-lfs/v3/errors"
+	"github.com/git-lfs/git-lfs/v3/fs"
+	"github.com/git-lfs/git-lfs/v3/git"
+	"github.com/git-lfs/git-lfs/v3/tools"
 	"github.com/rubyist/tracerx"
 )
 
@@ -76,7 +77,7 @@ func NewIn(workdir, gitdir string) *Configuration {
 
 	c.Git = &delayedEnvironment{
 		callback: func() Environment {
-			sources, err := gitConf.Sources(filepath.Join(c.LocalWorkingDir(), ".lfsconfig"))
+			sources, err := gitConf.Sources(c.LocalWorkingDir(), ".lfsconfig")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error reading git config: %s\n", err)
 			}
@@ -220,8 +221,9 @@ func (c *Configuration) IsDefaultRemote() bool {
 
 // Remote returns the default remote based on:
 // 1. The currently tracked remote branch, if present
-// 2. Any other SINGLE remote defined in .git/config
-// 3. Use "origin" as a fallback.
+// 2. The value of remote.lfsdefault.
+// 3. Any other SINGLE remote defined in .git/config
+// 4. Use "origin" as a fallback.
 // Results are cached after the first hit.
 func (c *Configuration) Remote() string {
 	ref := c.CurrentRef()
@@ -232,6 +234,9 @@ func (c *Configuration) Remote() string {
 	if c.currentRemote == nil {
 		if remote, ok := c.Git.Get(fmt.Sprintf("branch.%s.remote", ref.Name)); len(ref.Name) != 0 && ok {
 			// try tracking remote
+			c.currentRemote = &remote
+		} else if remote, ok := c.Git.Get("remote.lfsdefault"); ok {
+			// try default remote
 			c.currentRemote = &remote
 		} else if remotes := c.Remotes(); len(remotes) == 1 {
 			// use only remote if there is only 1
@@ -251,6 +256,8 @@ func (c *Configuration) PushRemote() string {
 
 	if c.pushRemote == nil {
 		if remote, ok := c.Git.Get(fmt.Sprintf("branch.%s.pushRemote", ref.Name)); ok {
+			c.pushRemote = &remote
+		} else if remote, ok := c.Git.Get("remote.lfspushdefault"); ok {
 			c.pushRemote = &remote
 		} else if remote, ok := c.Git.Get("remote.pushDefault"); ok {
 			c.pushRemote = &remote
@@ -369,8 +376,7 @@ func (c *Configuration) loadGitDirs() {
 	if err != nil {
 		errMsg := err.Error()
 		tracerx.Printf("Error running 'git rev-parse': %s", errMsg)
-		if !strings.Contains(strings.ToLower(errMsg),
-			"not a git repository") {
+		if errors.ExitStatus(err) != 128 {
 			fmt.Fprintf(os.Stderr, "Error: %s\n", errMsg)
 		}
 		c.gitDir = &gitdir
@@ -433,6 +439,9 @@ func (c *Configuration) Filesystem() *fs.Filesystem {
 }
 
 func (c *Configuration) Cleanup() error {
+	if c == nil {
+		return nil
+	}
 	c.loading.Lock()
 	defer c.loading.Unlock()
 	return c.fs.Cleanup()

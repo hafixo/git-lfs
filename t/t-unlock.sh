@@ -119,6 +119,51 @@ begin_test "unlocking a lock by id with bad ref"
 )
 end_test
 
+begin_test "unlock multiple files"
+(
+  set -e
+
+  reponame="unlock-multiple-files"
+  setup_remote_repo "$reponame"
+  clone_repo "$reponame" "$reponame"
+
+  git lfs track "*.dat"
+  echo "a" > a.dat
+  echo "b" > b.dat
+  git add .gitattributes a.dat b.dat
+  git commit -m "add dat files"
+  git push origin main:other
+
+  git lfs lock a.dat
+  git lfs lock b.dat
+  git lfs unlock *.dat >log 2>&1
+  grep "Usage:" log && exit 1
+  true
+)
+end_test
+
+begin_test "unlock multiple files (JSON)"
+(
+  set -e
+
+  reponame="unlock-multiple-files-json"
+  setup_remote_repo "$reponame"
+  clone_repo "$reponame" "$reponame"
+
+  git lfs track "*.dat"
+  echo "a" > a.dat
+  echo "b" > b.dat
+  git add .gitattributes a.dat b.dat
+  git commit -m "add dat files"
+  git push origin main:other
+
+  git lfs lock a.dat
+  git lfs lock b.dat
+  git lfs unlock --json *.dat | tee lock.json
+  grep -F '[{"path":"a.dat","unlocked":true},{"path":"b.dat","unlocked":true}]' lock.json
+)
+end_test
+
 begin_test "unlocking a file makes it readonly"
 (
   set -e
@@ -381,5 +426,28 @@ begin_test "unlocking a lock while untracked"
   git commit -m "Added untracked"
   git lfs unlock "untracked.dat" 2>&1 | tee unlock.log
   refute_server_lock "$reponame" "$id"
+)
+end_test
+
+begin_test "unlock with git-lfs-transfer"
+(
+  set -e
+
+  setup_pure_ssh
+
+  reponame="unlock-git-lfs-transfer"
+  setup_remote_repo_with_file "$reponame" "f.dat"
+  clone_repo "$reponame" "$reponame"
+
+  sshurl=$(ssh_remote "$reponame")
+  git config lfs.url "$sshurl"
+
+  GIT_TRACE_PACKET=1 git lfs lock --json "f.dat" | tee lock.log
+
+  id=$(assert_lock lock.log f.dat)
+  assert_server_lock_ssh "$reponame" "$id" "refs/heads/main"
+
+  git lfs unlock --id "$id"
+  refute_server_lock_ssh "$reponame" "$id" "refs/heads/main"
 )
 end_test

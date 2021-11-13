@@ -14,18 +14,16 @@ import (
 	"io/ioutil"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
-	lfserrors "github.com/git-lfs/git-lfs/errors"
-	"github.com/git-lfs/git-lfs/subprocess"
-	"github.com/git-lfs/git-lfs/tools"
+	lfserrors "github.com/git-lfs/git-lfs/v3/errors"
+	"github.com/git-lfs/git-lfs/v3/subprocess"
+	"github.com/git-lfs/git-lfs/v3/tools"
 	"github.com/git-lfs/gitobj/v2"
 	"github.com/rubyist/tracerx"
 )
@@ -733,13 +731,9 @@ func GitAndRootDirs() (string, string, error) {
 		// If we got a fatal error, it's possible we're on a newer
 		// (2.24+) Git and we're not in a worktree, so fall back to just
 		// looking up the repo directory.
-		if e, ok := err.(*exec.ExitError); ok {
-			var ws syscall.WaitStatus
-			ws, ok = e.ProcessState.Sys().(syscall.WaitStatus)
-			if ok && ws.ExitStatus() == 128 {
-				absGitDir, err := GitDir()
-				return absGitDir, "", err
-			}
+		if lfserrors.ExitStatus(err) == 128 {
+			absGitDir, err := GitDir()
+			return absGitDir, "", err
 		}
 		return "", "", fmt.Errorf("failed to call git rev-parse --git-dir --show-toplevel: %q", buf.String())
 	}
@@ -747,20 +741,11 @@ func GitAndRootDirs() (string, string, error) {
 	paths := strings.Split(output, "\n")
 	pathLen := len(paths)
 
-	for i := 0; i < pathLen; i++ {
-		if paths[i] != "" {
-			paths[i], err = tools.TranslateCygwinPath(paths[i])
-			if err != nil {
-				return "", "", fmt.Errorf("error translating cygwin path: %s", err)
-			}
-		}
-	}
-
 	if pathLen == 0 {
 		return "", "", fmt.Errorf("bad git rev-parse output: %q", output)
 	}
 
-	absGitDir, err := canonicalizeDir(paths[0])
+	absGitDir, err := tools.CanonicalizePath(paths[0], false)
 	if err != nil {
 		return "", "", fmt.Errorf("error converting %q to absolute: %s", paths[0], err)
 	}
@@ -769,19 +754,8 @@ func GitAndRootDirs() (string, string, error) {
 		return absGitDir, "", nil
 	}
 
-	absRootDir, err := canonicalizeDir(paths[1])
+	absRootDir, err := tools.CanonicalizePath(paths[1], false)
 	return absGitDir, absRootDir, err
-}
-
-func canonicalizeDir(path string) (string, error) {
-	if len(path) > 0 {
-		path, err := filepath.Abs(path)
-		if err != nil {
-			return "", err
-		}
-		return filepath.EvalSymlinks(path)
-	}
-	return "", nil
 }
 
 func RootDir() (string, error) {
@@ -796,7 +770,7 @@ func RootDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return canonicalizeDir(path)
+	return tools.CanonicalizePath(path, false)
 }
 
 func GitDir() (string, error) {
@@ -806,14 +780,10 @@ func GitDir() (string, error) {
 	out, err := cmd.Output()
 
 	if err != nil {
-		return "", fmt.Errorf("failed to call git rev-parse --git-dir: %v %v: %v", err, string(out), buf.String())
+		return "", fmt.Errorf("failed to call git rev-parse --git-dir: %w %v: %v", err, string(out), buf.String())
 	}
 	path := strings.TrimSpace(string(out))
-	path, err = tools.TranslateCygwinPath(path)
-	if err != nil {
-		return "", err
-	}
-	return canonicalizeDir(path)
+	return tools.CanonicalizePath(path, false)
 }
 
 func GitCommonDir() (string, error) {
@@ -836,7 +806,7 @@ func GitCommonDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return canonicalizeDir(path)
+	return tools.CanonicalizePath(path, false)
 }
 
 // GetAllWorkTreeHEADs returns the refs that all worktrees are using as HEADs
@@ -1428,6 +1398,10 @@ func IsWorkingCopyDirty() (bool, error) {
 
 func ObjectDatabase(osEnv, gitEnv Environment, gitdir, tempdir string) (*gitobj.ObjectDatabase, error) {
 	var options []gitobj.Option
+	objdir, ok := osEnv.Get("GIT_OBJECT_DIRECTORY")
+	if !ok {
+		objdir = filepath.Join(gitdir, "objects")
+	}
 	alternates, _ := osEnv.Get("GIT_ALTERNATE_OBJECT_DIRECTORIES")
 	if alternates != "" {
 		options = append(options, gitobj.Alternates(alternates))
@@ -1436,7 +1410,7 @@ func ObjectDatabase(osEnv, gitEnv Environment, gitdir, tempdir string) (*gitobj.
 	if hashAlgo != "" {
 		options = append(options, gitobj.ObjectFormat(gitobj.ObjectFormatAlgorithm(hashAlgo)))
 	}
-	odb, err := gitobj.FromFilesystem(filepath.Join(gitdir, "objects"), tempdir, options...)
+	odb, err := gitobj.FromFilesystem(objdir, tempdir, options...)
 	if err != nil {
 		return nil, err
 	}

@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/git-lfs/git-lfs/git"
-	"github.com/git-lfs/git-lfs/lfs"
-	"github.com/git-lfs/git-lfs/tools"
+	"github.com/git-lfs/git-lfs/v3/git"
+	"github.com/git-lfs/git-lfs/v3/lfs"
+	"github.com/git-lfs/git-lfs/v3/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -21,8 +21,7 @@ var (
 )
 
 func statusCommand(cmd *cobra.Command, args []string) {
-	requireInRepo()
-	requireWorkingCopy()
+	setupWorkingCopy()
 
 	// tolerate errors getting ref so this works before first commit
 	ref, _ := git.CurrentRef()

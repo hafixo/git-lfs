@@ -9,7 +9,19 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
+
+	"github.com/git-lfs/gitobj/v2/pack"
+)
+
+// We define these here instead of using the system ones because not all
+// operating systems use the traditional values.  For example, zOS uses
+// different values.
+const (
+	sIFMT      = int32(0170000)
+	sIFREG     = int32(0100000)
+	sIFDIR     = int32(0040000)
+	sIFLNK     = int32(0120000)
+	sIFGITLINK = int32(0160000)
 )
 
 // Tree encapsulates a Git tree object.
@@ -53,7 +65,7 @@ func (t *Tree) Decode(hash hash.Hash, from io.Reader, size int64) (n int, err er
 		n += len(fname)
 		fname = strings.TrimSuffix(fname, "\x00")
 
-		var sha [32]byte
+		var sha [pack.MaxHashSize]byte
 		if _, err = io.ReadFull(buf, sha[:hashlen]); err != nil {
 			return n, err
 		}
@@ -207,24 +219,18 @@ func (e *TreeEntry) Equal(other *TreeEntry) bool {
 // Type is the type of entry (either blob: BlobObjectType, or a sub-tree:
 // TreeObjectType).
 func (e *TreeEntry) Type() ObjectType {
-	switch e.Filemode & syscall.S_IFMT {
-	case syscall.S_IFREG:
+	switch e.Filemode & sIFMT {
+	case sIFREG:
 		return BlobObjectType
-	case syscall.S_IFDIR:
+	case sIFDIR:
 		return TreeObjectType
-	case syscall.S_IFLNK:
+	case sIFLNK:
 		return BlobObjectType
+	case sIFGITLINK:
+		return CommitObjectType
 	default:
-		if e.Filemode == 0xe000 {
-			// Mode 0xe000, or a gitlink, has no formal filesystem
-			// (`syscall.S_IF<t>`) equivalent.
-			//
-			// Safeguard that catch here, or otherwise panic.
-			return CommitObjectType
-		} else {
-			panic(fmt.Sprintf("gitobj: unknown object type: %o",
-				e.Filemode))
-		}
+		panic(fmt.Sprintf("gitobj: unknown object type: %o",
+			e.Filemode))
 	}
 }
 

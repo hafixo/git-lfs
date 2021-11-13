@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/git-lfs/git-lfs/config"
-	"github.com/git-lfs/git-lfs/tools"
+	"github.com/git-lfs/git-lfs/v3/config"
+	"github.com/git-lfs/git-lfs/v3/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -91,6 +91,8 @@ Simply type ` + root.Name() + ` help [path to command] for full details.`,
 	root.SetUsageFunc(usageCommand)
 
 	root.Flags().BoolVarP(&rootVersion, "version", "v", false, "")
+
+	canonicalizeEnvironment()
 
 	cfg = config.New()
 

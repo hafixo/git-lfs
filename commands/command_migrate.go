@@ -6,10 +6,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/git-lfs/git-lfs/errors"
-	"github.com/git-lfs/git-lfs/git"
-	"github.com/git-lfs/git-lfs/git/githistory"
-	"github.com/git-lfs/git-lfs/tasklog"
+	"github.com/git-lfs/git-lfs/v3/errors"
+	"github.com/git-lfs/git-lfs/v3/git"
+	"github.com/git-lfs/git-lfs/v3/git/githistory"
+	"github.com/git-lfs/git-lfs/v3/tasklog"
 	"github.com/git-lfs/gitobj/v2"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +30,11 @@ var (
 	// remote references, and thus should not contact the remote for a set
 	// of updated references.
 	migrateSkipFetch bool
+
+	// migrateImportAboveFmt indicates the presence of the --above=<size>
+	// flag and instructs 'git lfs migrate import' to import all files
+	// above the provided size.
+	migrateImportAboveFmt string
 
 	// migrateEverything indicates the presence of the --everything flag,
 	// and instructs 'git lfs migrate' to migrate all local references.
@@ -61,7 +66,7 @@ var (
 // migrate takes the given command and arguments, *gitobj.ObjectDatabase, as well
 // as a BlobRewriteFn to apply, and performs a migration.
 func migrate(args []string, r *githistory.Rewriter, l *tasklog.Logger, opts *githistory.RewriteOptions) {
-	requireInRepo()
+	setupRepository()
 
 	opts, err := rewriteOptions(args, opts, l)
 	if err != nil {
@@ -326,7 +331,7 @@ func ensureWorkingCopyClean(in io.Reader, out io.Writer) {
 		answer := bufio.NewReader(in)
 	L:
 		for {
-			fmt.Fprintf(out, "migrate: override changes in your working copy? [Y/n] ")
+			fmt.Fprintf(out, "migrate: override changes in your working copy?  All uncommitted changes will be lost! [y/N] ")
 			s, err := answer.ReadString('\n')
 			if err != nil {
 				if err == io.EOF {
@@ -337,10 +342,10 @@ func ensureWorkingCopyClean(in io.Reader, out io.Writer) {
 			}
 
 			switch strings.TrimSpace(s) {
-			case "n", "N":
+			case "n", "N", "":
 				proceed = false
 				break L
-			case "y", "Y", "":
+			case "y", "Y":
 				proceed = true
 				break L
 			}
@@ -363,8 +368,11 @@ func init() {
 	info.Flags().IntVar(&migrateInfoTopN, "top", 5, "--top=<n>")
 	info.Flags().StringVar(&migrateInfoAboveFmt, "above", "", "--above=<n>")
 	info.Flags().StringVar(&migrateInfoUnitFmt, "unit", "", "--unit=<unit>")
+	info.Flags().StringVar(&migrateInfoPointers, "pointers", "", "Ignore, dereference, or include LFS pointer files")
+	info.Flags().BoolVar(&migrateFixup, "fixup", false, "Infer filepaths based on .gitattributes")
 
 	importCmd := NewCommand("import", migrateImportCommand)
+	importCmd.Flags().StringVar(&migrateImportAboveFmt, "above", "", "--above=<n>")
 	importCmd.Flags().BoolVar(&migrateVerbose, "verbose", false, "Verbose logging")
 	importCmd.Flags().StringVar(&objectMapFilePath, "object-map", "", "Object map file")
 	importCmd.Flags().BoolVar(&migrateNoRewrite, "no-rewrite", false, "Add new history without rewriting previous")

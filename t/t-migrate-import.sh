@@ -409,13 +409,89 @@ begin_test "migrate import (include/exclude ref with filter)"
 )
 end_test
 
+begin_test "migrate import (above)"
+(
+  set -e
+  setup_single_local_branch_untracked
+
+  md_main_oid="$(calc_oid "$(git cat-file -p "refs/heads/main:a.md")")"
+  txt_main_oid="$(calc_oid "$(git cat-file -p "refs/heads/main:a.txt")")"
+
+  git lfs migrate import --above 121B
+  # Ensure that 'a.md', whose size is above our 121 byte threshold
+  # was converted into a git-lfs pointer by the migration.
+  assert_local_object "$md_main_oid" "140"
+  assert_pointer "refs/heads/main" "a.md" "$md_main_oid" "140"
+  refute_pointer "refs/heads/main" "a.txt" "$txt_main_oid" "120"
+  refute_local_object "$txt_main_oid" "120"
+
+  # The migration should have identified that *.md files are now
+  # tracked because it migrated a.md
+  main_attrs="$(git cat-file -p "$main:.gitattributes")"
+
+  echo "$main_attrs" | grep -q "/a.md filter=lfs diff=lfs merge=lfs"
+  echo "$main_attrs" | grep -vq "/a.txt filter=lfs diff=lfs merge=lfs"
+  git check-attr filter -- a.txt | grep -vq lfs
+)
+end_test
+
+begin_test "migrate import (above without extension)"
+(
+  set -e
+  setup_single_local_branch_untracked "just-b"
+
+  b_main_oid="$(calc_oid "$(git cat-file -p "refs/heads/main:just-b")")"
+  txt_main_oid="$(calc_oid "$(git cat-file -p "refs/heads/main:a.txt")")"
+
+  git lfs migrate import --above 121B
+  # Ensure that 'b', whose size is above our 121 byte threshold
+  # was converted into a git-lfs pointer by the migration.
+  assert_local_object "$b_main_oid" "140"
+  assert_pointer "refs/heads/main" "just-b" "$b_main_oid" "140"
+  refute_pointer "refs/heads/main" "a.txt" "$txt_main_oid" "120"
+  refute_local_object "$txt_main_oid" "120"
+
+  # The migration should have identified that /b is now tracked
+  # because it migrated it.
+  main_attrs="$(git cat-file -p "$main:.gitattributes")"
+
+  echo "$main_attrs" | grep -q "/just-b filter=lfs diff=lfs merge=lfs"
+  echo "$main_attrs" | grep -vq "/a.txt filter=lfs diff=lfs merge=lfs"
+  git check-attr filter -- a.txt | grep -vq lfs
+)
+end_test
+
+begin_test "migrate import (above with multiple files)"
+(
+  set -e
+  # It is important that this file sort after "a.txt".
+  setup_single_local_branch_untracked "b.txt"
+
+  a_main_oid="$(calc_oid "$(git cat-file -p "refs/heads/main:a.txt")")"
+  b_main_oid="$(calc_oid "$(git cat-file -p "refs/heads/main:b.txt")")"
+
+  git lfs migrate import --above 121B
+  # Ensure that 'a.md', whose size is above our 121 byte threshold
+  # was converted into a git-lfs pointer by the migration.
+  assert_local_object "$b_main_oid" "140"
+  assert_pointer "refs/heads/main" "b.txt" "$b_main_oid" "140"
+  refute_pointer "refs/heads/main" "a.txt" "$a_main_oid" "120"
+  refute_local_object "$a_main_oid" "120"
+
+  # The migration should have identified that *.md files are now
+  # tracked because it migrated a.md
+  main_attrs="$(git cat-file -p "$main:.gitattributes")"
+
+  echo "$main_attrs" | grep -q "/b.txt filter=lfs diff=lfs merge=lfs"
+  git check-attr filter -- a.txt | grep -vq lfs
+)
+end_test
+
 begin_test "migrate import (existing .gitattributes)"
 (
   set -e
 
   setup_local_branch_with_gitattrs
-
-  pwd
 
   main="$(git rev-parse refs/heads/main)"
 
@@ -444,8 +520,6 @@ begin_test "migrate import (--exclude with existing .gitattributes)"
   set -e
 
   setup_local_branch_with_gitattrs
-
-  pwd
 
   main="$(git rev-parse refs/heads/main)"
 
@@ -829,6 +903,23 @@ begin_test "migrate import (multiple remotes)"
 )
 end_test
 
+begin_test "migrate import (dirty copy, default negative answer)"
+(
+  set -e
+
+  setup_local_branch_with_dirty_copy
+
+  original_main="$(git rev-parse main)"
+
+  echo | git lfs migrate import --everything 2>&1 | tee migrate.log
+  grep "migrate: working copy must not be dirty" migrate.log
+
+  migrated_main="$(git rev-parse main)"
+
+  assert_ref_unmoved "main" "$original_main" "$migrated_main"
+)
+end_test
+
 begin_test "migrate import (dirty copy, negative answer)"
 (
   set -e
@@ -908,5 +999,34 @@ begin_test "migrate import (non-standard refs)"
   assert_local_object "$md_oid" "140"
   assert_local_object "$txt_oid" "120"
   assert_local_object "$md_feature_oid" "30"
+)
+end_test
+
+begin_test "migrate import (copied file)"
+(
+  set -e
+
+  setup_local_branch_with_copied_file
+
+  git lfs migrate import --above=1b
+
+  # Expect attributes for "/dir/a" and "/a"
+  if ! grep -q "^/dir/a.txt" ./.gitattributes || ! grep -q "^/a.txt" ./.gitattributes; then
+    exit 1
+  fi
+)
+end_test
+
+begin_test "migrate import (filename special characters)"
+(
+  set -e
+  setup_local_branch_with_special_character_files
+  git lfs migrate import --above=1b
+  # Windows does not allow creation of files with '*', so expect 2 files, not 3
+  if [ "$IS_WINDOWS" -eq "1" ] ; then
+    test "$(git check-attr filter -- *.bin |grep lfs | wc -l)" -eq 2 || exit 1
+  else
+    test "$(git check-attr filter -- *.bin |grep lfs | wc -l)" -eq 3 || exit 1
+  fi
 )
 end_test

@@ -7,11 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/git-lfs/git-lfs/creds"
-	"github.com/git-lfs/git-lfs/errors"
-	"github.com/git-lfs/git-lfs/git"
-	"github.com/git-lfs/git-lfs/lfshttp"
-	"github.com/git-lfs/git-lfs/tools"
+	"github.com/git-lfs/git-lfs/v3/errors"
+	"github.com/git-lfs/git-lfs/v3/git"
+	"github.com/git-lfs/git-lfs/v3/lfshttp"
+	"github.com/git-lfs/git-lfs/v3/tools"
 	"github.com/rubyist/tracerx"
 )
 
@@ -311,7 +310,7 @@ func NewTransferQueue(dir Direction, manifest *Manifest, remote string, options 
 
 	q.rc.MaxRetries = q.manifest.maxRetries
 	q.rc.MaxRetryDelay = q.manifest.maxRetryDelay
-	q.client.MaxRetries = q.manifest.maxRetries
+	q.client.SetMaxRetries(q.manifest.maxRetries)
 
 	if q.batchSize <= 0 {
 		q.batchSize = defaultBatchSize
@@ -558,22 +557,30 @@ func (q *TransferQueue) enqueueAndCollectRetriesFor(batch batch) (batch, error) 
 		var err error
 		bRes, err = Batch(q.manifest, q.direction, q.remote, q.ref, batch.ToTransfers())
 		if err != nil {
+			var hasNonScheduledErrors = false
 			// If there was an error making the batch API call, mark all of
 			// the objects for retry, and return them along with the error
 			// that was encountered. If any of the objects couldn't be
 			// retried, they will be marked as failed.
 			for _, t := range batch {
 				if q.canRetryObject(t.Oid, err) {
+					hasNonScheduledErrors = true
 					enqueueRetry(t, err, nil)
 				} else if readyTime, canRetry := q.canRetryObjectLater(t.Oid, err); canRetry {
-					err = nil
 					enqueueRetry(t, err, &readyTime)
 				} else {
+					hasNonScheduledErrors = true
 					q.wait.Done()
 				}
 			}
 
-			return next, errors.NewRetriableError(err)
+			// Only return error and mark operation as failure if at least one object
+			// was not enqueued for retrial at a later point.
+			if hasNonScheduledErrors {
+				return next, errors.NewRetriableError(err)
+			} else {
+				return next, nil
+			}
 		}
 	}
 
@@ -906,10 +913,6 @@ func (q *TransferQueue) ensureAdapterBegun(e lfshttp.Endpoint) error {
 func (q *TransferQueue) toAdapterCfg(e lfshttp.Endpoint) AdapterConfig {
 	apiClient := q.manifest.APIClient()
 	concurrency := q.manifest.ConcurrentTransfers()
-	access := apiClient.Endpoints.AccessFor(e.Url)
-	if access.Mode() == creds.NTLMAccess {
-		concurrency = 1
-	}
 
 	return &adapterConfig{
 		concurrentTransfers: concurrency,
@@ -947,6 +950,10 @@ func (q *TransferQueue) Wait() {
 
 	q.meter.Flush()
 	q.errorwait.Wait()
+
+	if q.manifest.sshTransfer != nil {
+		q.manifest.sshTransfer.Shutdown()
+	}
 
 	if q.unsupportedContentType {
 		for _, line := range contentTypeWarning {

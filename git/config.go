@@ -2,12 +2,13 @@ package git
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
-	"github.com/git-lfs/git-lfs/subprocess"
+	"github.com/git-lfs/git-lfs/v3/subprocess"
 )
 
 var (
@@ -134,20 +135,34 @@ func (c *Configuration) UnsetLocalKey(key string) (string, error) {
 	return c.gitConfigWrite("--unset", key)
 }
 
-func (c *Configuration) Sources(optionalFilename string) ([]*ConfigurationSource, error) {
+func (c *Configuration) Sources(dir string, optionalFilename string) ([]*ConfigurationSource, error) {
 	gitconfig, err := c.Source()
 	if err != nil {
 		return nil, err
 	}
-
-	fileconfig, err := c.FileSource(optionalFilename)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-
 	configs := make([]*ConfigurationSource, 0, 2)
-	if fileconfig != nil {
-		configs = append(configs, fileconfig)
+
+	bare, err := IsBare()
+	if err == nil {
+		// First try to read from the working directory and then the index if
+		// the file is missing from the working directory.
+		var fileconfig *ConfigurationSource
+		if !bare {
+			fileconfig, err = c.FileSource(filepath.Join(dir, optionalFilename))
+			if err != nil {
+				if !os.IsNotExist(err) {
+					return nil, err
+				}
+				fileconfig, _ = c.RevisionSource(fmt.Sprintf(":%s", optionalFilename))
+			}
+		}
+		if fileconfig == nil {
+			fileconfig, _ = c.RevisionSource(fmt.Sprintf("HEAD:%s", optionalFilename))
+		}
+
+		if fileconfig != nil {
+			configs = append(configs, fileconfig)
+		}
 	}
 
 	return append(configs, gitconfig), nil
@@ -165,6 +180,14 @@ func (c *Configuration) FileSource(filename string) (*ConfigurationSource, error
 	return ParseConfigLines(out, true), nil
 }
 
+func (c *Configuration) RevisionSource(revision string) (*ConfigurationSource, error) {
+	out, err := c.gitConfig("-l", "--blob", revision)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfigLines(out, true), nil
+}
+
 func (c *Configuration) Source() (*ConfigurationSource, error) {
 	out, err := c.gitConfig("-l")
 	if err != nil {
@@ -174,7 +197,7 @@ func (c *Configuration) Source() (*ConfigurationSource, error) {
 }
 
 func (c *Configuration) gitConfig(args ...string) (string, error) {
-	args = append([]string{"config"}, args...)
+	args = append([]string{"config", "--includes"}, args...)
 	cmd := subprocess.ExecCommand("git", args...)
 	if len(c.GitDir) > 0 {
 		cmd.Dir = c.GitDir

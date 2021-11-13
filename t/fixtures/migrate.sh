@@ -84,6 +84,32 @@ setup_local_branch_with_nested_gitattrs() {
   git commit -m "add nested .gitattributes"
 }
 
+# setup_single_local_branch_untracked creates a repository as follows:
+#
+#   A---B
+#        \
+#         refs/heads/main
+#
+# - Commit 'A' has 120, in a.txt and 140 in a.md, with neither files tracked as
+#   pointers in Git LFS
+setup_single_local_branch_untracked() {
+  set -e
+
+  local name="${1:-a.md}"
+
+  reponame="single-local-branch-untracked"
+
+  remove_and_create_local_repo "$reponame"
+
+  git commit --allow-empty -m "initial commit"
+
+  base64 < /dev/urandom | head -c 120 > a.txt
+  base64 < /dev/urandom | head -c 140 > "$name"
+
+  git add a.txt "$name"
+  git commit -m "add a.txt and $name"
+}
+
 # setup_single_local_branch_tracked creates a repository as follows:
 #
 #   A---B
@@ -99,7 +125,8 @@ setup_single_local_branch_tracked() {
 
   remove_and_create_local_repo "$reponame"
 
-  git lfs track "*.txt" "*.md"
+  echo "*.txt filter=lfs diff=lfs merge=lfs -text" > .gitattributes
+  echo "*.md filter=lfs diff=lfs merge=lfs -text" >> .gitattributes
 
   git add .gitattributes
   git commit -m "initial commit"
@@ -153,11 +180,11 @@ setup_single_local_branch_complex_tracked() {
 setup_single_local_branch_tracked_corrupt() {
   set -e
 
-  reponame="migrate-single-locla-branch-with-attrs-corrupt"
+  reponame="migrate-single-local-branch-with-attrs-corrupt"
 
   remove_and_create_local_repo "$reponame"
 
-  git lfs track "*.txt"
+  echo "*.txt filter=lfs diff=lfs merge=lfs -text" > .gitattributes
   git lfs uninstall
 
   base64 < /dev/urandom | head -c 120 > a.txt
@@ -277,7 +304,8 @@ setup_multiple_local_branches_tracked() {
 
   remove_and_create_local_repo "$reponame"
 
-  git lfs track "*.txt" "*.md"
+  echo "*.txt filter=lfs diff=lfs merge=lfs -text" > .gitattributes
+  echo "*.md filter=lfs diff=lfs merge=lfs -text" >> .gitattributes
   git add .gitattributes
   git commit -m "initial commit"
 
@@ -622,6 +650,50 @@ setup_local_branch_with_dirty_copy() {
   git commit -m "initial commit"
 
   printf "2" >> a.txt
+}
+
+# setup_local_branch_with_copied_file creates a repository as follows:
+#
+#   A
+#    \
+#     refs/heads/main
+#
+# - Commit 'A' has the contents "a.txt" in a.txt, and anoter identical file
+# (same name and content) in another directory.
+setup_local_branch_with_copied_file() {
+  set -e
+
+  reponame="migrate-single-local-branch-with-copied-file"
+  remove_and_create_local_repo "$reponame"
+
+  printf "a.txt" > a.txt
+  mkdir dir
+  cp a.txt dir/
+
+  git add a.txt dir/a.txt
+  git commit -m "initial commit"
+}
+
+# setup_local_branch_with_special_character_files creates a repository as follows:
+#
+#   A
+#    \
+#     refs/heads/main
+#
+# - Commit 'A' has binary files with special characters
+setup_local_branch_with_special_character_files() {
+  set -e
+
+  reponame="migrate-single-local-branch-with-special-filenames"
+  remove_and_create_local_repo "$reponame"
+
+  head -c 80 /dev/urandom > './test - special.bin'
+  head -c 100 /dev/urandom > './test (test2) special.bin'
+  # Windows does not allow creation of files with '*'
+  [ "$IS_WINDOWS" -eq '1' ] || head -c 120 /dev/urandom > './test * ** special.bin'
+
+  git add *.bin
+  git commit -m "initial commit"
 }
 
 # make_bare converts the existing full checkout of a repository into a bare one,

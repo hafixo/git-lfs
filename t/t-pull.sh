@@ -138,6 +138,14 @@ begin_test "pull"
   git lfs pull -I "*.dat"
   assert_clean_status
 
+  echo "lfs pull with empty file"
+  touch empty.dat
+  git add empty.dat
+  git commit -m 'empty'
+  git lfs pull
+  [ -z "$(cat empty.dat)" ]
+  assert_clean_status
+
   echo "lfs pull in subdir"
   cd dir
   git lfs pull
@@ -281,6 +289,36 @@ begin_test "pull with invalid insteadof"
   # lfs-pull succeed after unsetting enableHrefRewrite config
   git config --unset lfs.transfer.enablehrefrewrite
   git lfs pull
+)
+end_test
+
+begin_test "pull with merge conflict"
+(
+  set -e
+  git init pull-merge-conflict
+  cd pull-merge-conflict
+
+  git lfs track "*.bin"
+  git add .
+  git commit -m 'gitattributes'
+  printf abc > abc.bin
+  git add .
+  git commit -m 'abc'
+
+  git checkout -b def
+  printf def > abc.bin
+  git add .
+  git commit -m 'def'
+
+  git checkout main
+  printf ghi > abc.bin
+  git add .
+  git commit -m 'ghi'
+
+  # This will exit nonzero because of the merge conflict.
+  GIT_LFS_SKIP_SMUDGE=1 git merge def || true
+  git lfs pull > pull.log 2>&1
+  [ ! -s pull.log ]
 )
 end_test
 

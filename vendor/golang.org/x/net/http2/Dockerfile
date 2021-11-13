@@ -6,7 +6,11 @@
 # Go tests use this curl binary for integration tests.
 #
 
+ snyk-fix-b0ec02b97e542baf93a17a15e059b2c2
 FROM ubuntu:trusty-20190515
+=
+FROM ubuntu:trusty-20190425
+ master
 
 RUN apt-get update && \
     apt-get upgrade -y && \

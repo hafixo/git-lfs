@@ -70,7 +70,71 @@ begin_test "lock with bad ref"
     exit 1
   fi
 
-  grep 'Lock failed: Expected ref "refs/heads/other", got "refs/heads/main"' lock.json
+  grep 'Locking a.dat failed: Expected ref "refs/heads/other", got "refs/heads/main"' lock.json
+)
+end_test
+
+begin_test "lock multiple files"
+(
+  set -e
+
+  reponame="lock-multiple-files"
+  setup_remote_repo "$reponame"
+  clone_repo "$reponame" "$reponame"
+
+  git lfs track "*.dat"
+  echo "a" > a.dat
+  echo "b" > b.dat
+  git add .gitattributes a.dat b.dat
+  git commit -m "add dat files"
+  git push origin main:other
+
+  GIT_TRACE=0 git lfs lock *.dat >log 2>errlog
+  [ $(grep -c "Locked [ab].dat" log) -eq 2 ]
+  grep -v CREDS errlog && exit 1
+  grep "Usage:" errlog && exit 1
+  true
+)
+end_test
+
+begin_test "lock multiple files (JSON)"
+(
+  set -e
+
+  reponame="lock-multiple-files-json"
+  setup_remote_repo "$reponame"
+  clone_repo "$reponame" "$reponame"
+
+  git lfs track "*.dat"
+  echo "a" > a.dat
+  echo "b" > b.dat
+  git add .gitattributes a.dat b.dat
+  git commit -m "add dat files"
+  git push origin main:other
+
+  git lfs lock --json *.dat | tee lock.json
+  grep -E '\[\{"id":"[^"]+","path":"a\.dat","owner":\{"name":"Git LFS Tests"\},"locked_at":"[^"]+"\},\{"id":"[^"]+","path":"b\.dat","owner":\{"name":"Git LFS Tests"\},"locked_at":"[^"]+"\}\]' lock.json
+)
+end_test
+
+begin_test "lock absolute path"
+(
+  set -e
+
+  reponame="lock-absolute-path"
+  setup_remote_repo "$reponame"
+  clone_repo "$reponame" "$reponame"
+
+  git lfs track "*.dat"
+  echo "a" > a.dat
+  echo "b" > b.dat
+  git add .gitattributes a.dat b.dat
+  git commit -m "add dat files"
+  git push origin main:other
+
+  git lfs lock --json "$(pwd)/a.dat" | tee lock.json
+  id=$(assert_lock lock.json a.dat)
+  assert_server_lock "$reponame" "$id"
 )
 end_test
 
@@ -292,5 +356,25 @@ begin_test "lock with .gitignore and lfs.lockignoredfiles"
   git commit -m ".gitignore: ignore 'a.txt'"
   rm -f a.txt && git checkout a.txt
   refute_file_writeable a.txt
+)
+end_test
+
+begin_test "lock with git-lfs-transfer"
+(
+  set -e
+
+  setup_pure_ssh
+
+  reponame="lock-with-git-lfs-transfer"
+  setup_remote_repo_with_file "$reponame" "f.dat"
+  clone_repo "$reponame" "$reponame"
+
+  sshurl=$(ssh_remote "$reponame")
+  git config lfs.url "$sshurl"
+
+  GIT_TRACE_PACKET=1 git lfs lock --json "f.dat" | tee lock.log
+
+  id=$(assert_lock lock.log f.dat)
+  assert_server_lock_ssh "$reponame" "$id" "refs/heads/main"
 )
 end_test
